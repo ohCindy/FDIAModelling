@@ -1,8 +1,7 @@
 %close all
 clear
 addpath(genpath('matpower7.0/')) %add all subfolders
-casename = 'case_ACTIVSg500.m';
-
+casename = 'case30.m';
 
 %% simulate reality/environment
 if ~(exist('measure')==1)
@@ -20,25 +19,55 @@ if ~(exist('measure')==1)
         measure.Pinj(3) = sign(measure.Pinj(3))*(1+abs(measure.Pinj(3)));
     end
 end
-
+%% operator's previous SE settings (attackers can steal previous state estimates at t-1)
+%control parameters
+K_diff_topo = 1; %create the difference in topology between t-1 and t
+K_diff_para = 2; %create number of outdated line parameter t-1 and t
+Mag_prev_para = 0.02;
+prev_lf = rand(1)*0.05+0.95; %randomly sample a previous lf between 100%+/-2.5%
+%
+mpc_prev = mpc;
+shuffled_br_ids_topo = randperm(length(mpc_prev.branch));
+%make topolgy different
+mpc_prev.branch = get_inaccurate_topology(mpc_prev.branch,K_diff_topo,shuffled_br_ids_topo);
+%make network paramter different (sparse)
+shuffled_br_ids_para = randperm(length(mpc_prev.branch));
+[mpc_prev.branch, ~] = get_inaccurate_para_sparse(mpc_prev.branch,K_diff_para,Mag_prev_para,shuffled_br_ids_para);
+%load factor different
+mpc_prev.bus(:,3:4) = mpc_prev.bus(:,3:4)*prev_lf; %scale load
+mpc_prev.gen(:,2:3) = mpc_prev.gen(:,2:3)*prev_lf; %scale generation
+%create previous measurements
+pf_results_prev = runpf(mpc_prev);
+[measure_prev,idx_prev,sigma_prev,~,~] = simulate_SCADA_meters(pf_results_prev, noise_level);
+%get previous SE result (attacker can steal this solution)
+baseMVA = mpc_prev.baseMVA;
+bus_prev = mpc_prev.bus;
+gen_prev = mpc_prev.gen;
+branch_prev = mpc_prev.branch;
+[success_prev, Vest_prev, ~, ~, ~, ~, ~, ~,~]=...
+                                    SE_unit(baseMVA, bus_prev, gen_prev, branch_prev,...
+                                            measure_prev, idx_prev, sigma_prev, 100, ...
+                                            1);%get operator's estimation at t-1
 %% attacker side - prepare inaccuracy models:
-%create imperfect grid model: topology error/inaccurate network parameter
+% control parameters for imperfect grid model: topology error/inaccurate network parameter
+K_topo = 5; % topology inaccuracy
+K_para = 2;
+Mag_sparse_para = 0.2;
+Mag_dense_para = 0.05;
+K_x = 0;
+
 %grid model [baseMVA, bus_as, gen_as, branch_as]
 baseMVA = mpc.baseMVA;
 bus_as = mpc.bus;
 gen_as = mpc.gen;
 branch_as0 = mpc.branch;
-
-% topology inaccuracy
-K_topo = 50;
+Vest_as0 = Vest_prev;
+%topology inaccuracy
 shuffled_br_ids_topo = randperm(length(branch_as0));
 [branch_as_topo, topo_ids] = get_inaccurate_topology(branch_as0,K_topo,shuffled_br_ids_topo);
 %dense network parameter inaccuracy
-Mag_dense_para = 0.05;
 branch_as_dense = get_inaccurate_para_dense(branch_as0,Mag_dense_para);
 %sparse network parameter inaccuracy
-K_para = 10;
-Mag_sparse_para = 0.2;
 shuffled_br_ids_para = randperm(length(branch_as0));
 [branch_as_sparse, ntwpara_ids] = get_inaccurate_para_sparse(branch_as0,K_para,Mag_sparse_para,shuffled_br_ids_para);
 %combined: topology + network paremeter inaccuracy(sparse+dense)
@@ -46,18 +75,16 @@ branch_as_combined = branch_as_dense;
 branch_as_combined(topo_ids,11) = 0;
 branch_as_combined(ntwpara_ids,3:4) = branch_as_combined(ntwpara_ids,3:4) + Mag_sparse_para;
 % state vector inaccuracy
-Vest_as0 = V_GT; %X, estimation of the state x on attacker's server
 Vest_as_dense = Vest_as0;
 Vest_as_dense(:) = 1+0i;
-K_x = 2;
 shuffled_state_ids = randperm(length(Vest_as0));
 [Vest_as_sparse, x_ids] = get_inaccurate_state_sparse(Vest_as0,K_x,shuffled_state_ids, ref);
-% should also pay attention to reference bus 
-
+ 
 %% target bad case, what do we want to mislead the operator to? 
 % for AC FDIA
+tgt_lf = 0.98;
 tgtcase_as = mpc;
-tgtcase_as.bus(:,3:4) = mpc.bus(:,3:4)*0.98; %reduce load by 10%
+tgtcase_as.bus(:,3:4) = mpc.bus(:,3:4)*tgt_lf; %reduce load by 10%
 pf_astgt = runpf(tgtcase_as);
 % for DC FDIA
 dA_as = 3*randn(length(bus_as),1); %for FDIA DC
@@ -92,7 +119,7 @@ elseif test_sensitivity == 1
     tested_inaccuracy = 'topology';
     i_instance = 1;
     if strcmp(tested_inaccuracy, 'topology')==1
-        for K_topo = 0:10:80 %0:8
+        for K_topo = 0:1:8 %0:8
             instance.MODE_FDIA = 'perfect AC'; %'DC','target AC','perfect AC'
             instance.inaccuracy = tested_inaccuracy;
             instance.K_topo = K_topo;
@@ -108,7 +135,7 @@ elseif test_sensitivity == 1
             i_instance = i_instance + 1;
         end
     elseif strcmp(tested_inaccuracy,'sparse network parameter')==1
-        for K_para = 0:10:20
+        for K_para = 0:1:10
             instance.MODE_FDIA = 'perfect AC'; %'DC','target AC','perfect AC'
             instance.inaccuracy = tested_inaccuracy;
             instance.K_para = K_para;
@@ -123,7 +150,7 @@ elseif test_sensitivity == 1
             instance.K_x = K_x;
             Instances{i_instance} = instance;
             i_instance = i_instance + 1; 
-        end
+        end        
     end
 end
 %% according to MODE_FDIA, inaccuracy, fill in  Vest_as, branch_as
@@ -193,12 +220,11 @@ for i = 1:length(Instances)
     init_option = 1;
     alpha = 100;
     fprintf("used sigma*%d in SE\n",alpha)
-    
-    [V_SE, z_SEest, z_SEuse, if_bad, J, t_J, rW,rN]=...
+    [success, V_SE, z_SEest, z_SEuse, if_bad, J, t_J, rW,rN]=...
                                     SE_unit(baseMVA, bus, gen, branch,...
                                             measure_a, idx, sigma,alpha, ...
                                             init_option);
-    [V_SE_NA, z_SEest_NA, z_SEuse_NA, if_bad_NA, J_NA, t_J_NA, rW_NA,rN_NA]=...
+    [success_NA, V_SE_NA, z_SEest_NA, z_SEuse_NA, if_bad_NA, J_NA, t_J_NA, rW_NA,rN_NA]=...
                                     SE_unit(baseMVA, bus, gen, branch,...
                                             measure, idx, sigma, alpha, ...
                                             init_option); %NA: no attack
@@ -235,11 +261,12 @@ for i = 1:length(Instances)
 end
 
 %% plot a curve of J if test sensitivity of a specific inaccuracy
+scaling_factor = 1;
 if test_sensitivity == 1
     for i = 1:length(Instances)
-       Instances{i}.J = Instances{i}.J/5; %scaling
-       Instances{i}.J_NA = Instances{i}.J_NA/5;
-       Instances{i}.t_J = 1314.8;
+       Instances{i}.J = Instances{i}.J/scaling_factor; %scaling
+       Instances{i}.J_NA = Instances{i}.J_NA/scaling_factor;
+       Instances{i}.t_J = nan;
        instance = Instances{i};
        if strcmp(instance.inaccuracy,'topology')==1
             x(i) = instance.K_topo; 
@@ -252,7 +279,6 @@ if test_sensitivity == 1
        end
             
        y(i) = instance.J;
-       tJ(i) = 1314.8;
     end    
     
     figure('Position',[100 100 300 200])
@@ -261,29 +287,26 @@ if test_sensitivity == 1
     'MarkerSize',5,...
     'MarkerEdgeColor','b',...
     'MarkerFaceColor',[0.5,0.5,0.5]) , hold on
-    plot(x,tJ,'r','LineWidth',1) 
     title(['RSS w.r.t. ' num2str(tested_inaccuracy), ' inaccuracy'])
     xlabel(instance.inaccuracy)
     ylabel('RSS')
     
-end
+else
 
     for i = 1:length(Instances)
-       Instances{i}.J = Instances{i}.J/5;
-       Instances{i}.J_NA = Instances{i}.J_NA/5;
-       Instances{i}.t_J = 1314.8;
+       Instances{i}.J = Instances{i}.J/scaling_factor;
+       Instances{i}.J_NA = Instances{i}.J_NA/scaling_factor;
+       Instances{i}.t_J = thre;
       instance = Instances{i};
        x(i) = i;
        J(i) = instance.J;
-       tJ(i) = 1314.8; 
     end    
     figure('Position',[99 100 200 200])
     bar(1,instance.J_NA,'FaceColor',[0.5 .5 .5]), hold on
     bar(x+1,J), hold on
-    plot(0:(length(x)+2),tJ(1)*ones(1,length(x)+3),'r','LineWidth',1) 
     %title(['RSS'])
     %xlabel('')
     ylabel('RSS')
+end
 
-
-
+%save('myinstances.mat','Instances')
