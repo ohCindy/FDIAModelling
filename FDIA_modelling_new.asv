@@ -3,9 +3,6 @@ clear
 addpath(genpath('matpower7.0/')) %add all subfolders
 casename = 'case30.m';
 
-%% global control parameters
-test_sensitivity = 1;
-attack_use_outdated = 1;
 %% simulate reality/environment
 if ~(exist('measure')==1)
     disp("simulate grid enviroment and meters by power flow")
@@ -26,9 +23,8 @@ end
 %control parameters
 K_diff_topo = 5; %create the difference in topology between t-1 and t
 K_diff_para = 2; %create number of outdated line parameter t-1 and t
-Mag_prev_para = 0.1;
+Mag_prev_para = 0.05;
 prev_lf = rand(1)*0.05+0.95; %randomly sample a previous lf between 100%+/-2.5%
-%% find a feasible previous system and simulate powerflow + SE
 success = 0;
 while ~success
     %randomness
@@ -43,34 +39,42 @@ end
 %% attacker side - prepare inaccuracy models:
 % control parameters for imperfect grid model: topology error/inaccurate network parameter
 baseMVA = mpc.baseMVA;
+attack_use_outdated = 1;
 if attack_use_outdated
     K_topo = K_diff_topo; % topology inaccuracy
     K_para = K_diff_para;
     Mag_sparse_para = Mag_prev_para;
-    Mag_dense_para = 0.05;
+    Mag_dense_para = 0.02;
 else
     K_topo = 5; % topology inaccuracy
     K_para = 2;
     Mag_sparse_para = 0.2;
-    Mag_dense_para = 0.05;
+    Mag_dense_para = 0.02;
     %recreate randomness
-    shuffled_br_ids_topo = randperm(length(mpc.branch));
-    shuffled_br_ids_para = randperm(length(mpc.branch));
+    shuffled_br_ids_topo = randperm(length(branch_as0));
+    shuffled_br_ids_para = randperm(length(branch_as0));
 end
-%% attacker side: attack target, what do we want to mislead the operator to? 
-% for AC FDIA, mislead the operator into thinking load changes by tgt_lf
+%% target bad case, what do we want to mislead the operator to? 
+% for AC FDIA
 tgt_lf = 0.95;
-% for DC FDIA, mislead the operator into thinking there's angle instability
+if attack_use_outdated == 1
+    mpc_as = mpc_prev;
+else
+    mpc_as = mpc;
+end
+[pf_astgt,tgtcase_as] = get_attack_target_case(mpc_as,tgt_lf);
+% for DC FDIA
 dA_as = 3*randn(length(mpc.bus),1); %for FDIA DC
 dA_as(11:end)=0;
 
 %% create instances of inaccuracy models (specify hyperpara)
+test_sensitivity = 1;
 if test_sensitivity == 0
 %test different inaccuracy models
-MODE_FDIA_list = {'perfect AC'}; 
+MODE_FDIA_list = {'perfect AC'}; %{'perfect AC','DC'};
 inaccuracy_list = {'No inaccuracy',...
                     'topology',...
-                    'dense network parameter','sparse network parameter','combined'};
+                    'dense network parameter','sparse network parameter'};
 i_instance = 1;
 for p = 1:length(MODE_FDIA_list)
     for q = 1:length(inaccuracy_list)
@@ -87,11 +91,6 @@ for p = 1:length(MODE_FDIA_list)
             instance.Mag_sparse_para = Mag_sparse_para;
         elseif strcmp(instance.inaccuracy, 'dense network parameter')==1
             instance.Mag_dense_para = Mag_dense_para;
-        elseif strcmp(instance.inaccuracy, 'combined')==1
-            instance.K_topo = K_topo;
-            instance.K_para = K_topo;
-            instance.Mag_dense_para = Mag_dense_para;
-            instance.Mag_sparse_para = Mag_sparse_para;
         end
         Instances{i_instance} = instance;
         i_instance = i_instance + 1;
@@ -114,7 +113,7 @@ elseif test_sensitivity == 1
             i_instance = i_instance + 1;
         end
     elseif strcmp(tested_inaccuracy,'dense network parameter')==1
-        for Mag_dense_para = 0:0.01:0.1
+        for Mag_dense_para = 0:0.01:0.8
             instance.MODE_FDIA = 'perfect AC'; %'DC','target AC','perfect AC'
             instance.inaccuracy = tested_inaccuracy;
             instance.Mag_dense_para = Mag_dense_para;
@@ -138,6 +137,7 @@ elseif test_sensitivity == 1
     end
 end
 %% according to MODE_FDIA, inaccuracy, fill in  Vest_as, branch_as
+
 for i = 1:length(Instances)
     instance = Instances{i};   
     if strcmp(instance.inaccuracy, 'No inaccuracy')==1
@@ -161,22 +161,18 @@ for i = 1:length(Instances)
                      shuffled_br_ids_topo,shuffled_br_ids_para,noise_level,0);
         end
     end
-    instance.mpc_as = mpc_as;
+    instance.mpc_as = mpc;
     Instances{i} = instance;
 end
 %% for each instance, according to its inaccuracy model, run operator's SE
 for i = 1:length(Instances)
     instance = Instances{i};
     MODE_FDIA = instance.MODE_FDIA;
-    Vest_as = instance.Vest_as;
     if strcmp(MODE_FDIA, 'perfect AC')||strcmp(MODE_FDIA, 'DC')
         %well crafted fdia ac
         %Vest_as ready
         if strcmp(MODE_FDIA, 'perfect AC')
-            %% generate target according to the attacker's model
-            [pf_astgt,tgtcase_as] = get_attack_target_case(instance.mpc_as,tgt_lf);
-            %% create fake measurements
-            [measure_a, idx, Vtarget_as] = ...
+        [measure_a, idx, Vtarget_as] = ...
                     fdia_perfac_gen(Vest_as,pf_astgt, ...
                                 measure,idx,...
                                    baseMVA, instance.mpc_as.bus, instance.mpc_as.gen, instance.mpc_as.branch);
@@ -190,6 +186,7 @@ for i = 1:length(Instances)
         Vtarget_as=abs(V_GT).*exp(1i*(angle(V_GT)+dA_as)); %Xa, the bad state that attackers want to mislead operators toward
         end
     end
+
     %% operator side: SE unit with BDD and BDI (V_SE is V_a)
     baseMVA = mpc.baseMVA;
     bus = mpc.bus;
@@ -202,12 +199,10 @@ for i = 1:length(Instances)
                                     SE_unit(baseMVA, bus, gen, branch,...
                                             measure_a, idx, sigma,alpha, ...
                                             init_option);
-    if i==1
-        [success_NA, V_SE_NA, z_SEest_NA, z_SEuse_NA, if_bad_NA, J_NA, t_J_NA, rW_NA,rN_NA]=...
+    [success_NA, V_SE_NA, z_SEest_NA, z_SEuse_NA, if_bad_NA, J_NA, t_J_NA, rW_NA,rN_NA]=...
                                     SE_unit(baseMVA, bus, gen, branch,...
                                             measure, idx, sigma, alpha, ...
                                             init_option); %NA: no attack
-    end
     %% operator side: SE accuracy 
     % RMSE
     res_x = sqrt(sum(real(V_SE-V_GT).^2+imag(V_SE-V_GT).^2)/length(bus));
@@ -239,21 +234,14 @@ for i = 1:length(Instances)
          instance.res_x, instance.res_xa,... 
             instance.res_x_NA); 
 end
-%% prepare for data save
-scaling_factor = 1;
-for i = 1:length(Instances)
-   Instances{i}.J = Instances{i}.J/scaling_factor; %scaling
-   Instances{i}.J_NA = Instances{i}.J_NA/scaling_factor;
-   Instances{i}.t_J = nan;
-   Instances{i}.mpc_as = [];
-   Instances{i}.Vest_as = [];
-end
-%% plot a curve of J if test sensitivity of a specific inaccuracy, save data
 
-      
-    
-if test_sensitivity == 1  
+%% plot a curve of J if test sensitivity of a specific inaccuracy
+scaling_factor = 1;
+if test_sensitivity == 1
     for i = 1:length(Instances)
+       Instances{i}.J = Instances{i}.J/scaling_factor; %scaling
+       Instances{i}.J_NA = Instances{i}.J_NA/scaling_factor;
+       Instances{i}.t_J = nan;
        instance = Instances{i};
        if strcmp(instance.inaccuracy,'topology')==1
             x(i) = instance.K_topo; 
@@ -263,9 +251,11 @@ if test_sensitivity == 1
             x(i) = instance.K_para;  
         elseif strcmp(instance.inaccuracy,'sparse state')==1
             x(i) = instance.K_x; 
-       end           
+       end
+            
        y(i) = instance.J;
-    end  
+    end    
+    
     figure('Position',[100 100 300 200])
     plot(x,y,'--s',...
     'LineWidth',2,...
@@ -276,16 +266,22 @@ if test_sensitivity == 1
     xlabel(instance.inaccuracy)
     ylabel('RSS')
     
-else   
+else
+
     for i = 1:length(Instances)
-       J(i) = Instances{i}.J;
-    end   
+       Instances{i}.J = Instances{i}.J/scaling_factor;
+       Instances{i}.J_NA = Instances{i}.J_NA/scaling_factor;
+       %Instances{i}.t_J = thre;
+      instance = Instances{i};
+       x(i) = i;
+       J(i) = instance.J;
+    end    
     figure('Position',[99 100 200 200])
     bar(1,instance.J_NA,'FaceColor',[0.5 .5 .5]), hold on
-    bar((1:length(Instances))+1,J), hold on
+    bar(x+1,J), hold on
     %title(['RSS'])
     %xlabel('')
     ylabel('RSS')
 end
-%% save data result
-%save(fprintf('%s_instance.mat',casename),'Instances')
+
+%save('myinstances.mat','Instances')
