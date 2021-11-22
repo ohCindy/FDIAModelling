@@ -104,7 +104,7 @@ elseif test_sensitivity == 1
     tested_inaccuracy = 'topology';
     i_instance = 1;
     if strcmp(tested_inaccuracy, 'topology')==1
-        for K_topo = 0:1:5 %0:8
+        for K_topo = 0:1:10 %0:8
             instance.MODE_FDIA = 'perfect AC'; %'DC','target AC','perfect AC'
             instance.inaccuracy = tested_inaccuracy;
             instance.K_topo = K_topo;
@@ -253,40 +253,40 @@ end
 
       
     
-if test_sensitivity == 1  
-    for i = 1:length(Instances)
-       instance = Instances{i};
-       if strcmp(instance.inaccuracy,'topology')==1
-            x(i) = instance.K_topo; 
-       elseif strcmp(instance.inaccuracy,'dense network parameter')==1
-            x(i) = instance.Mag_dense_para; 
-        elseif strcmp(instance.inaccuracy,'sparse network parameter')==1
-            x(i) = instance.K_para;  
-        elseif strcmp(instance.inaccuracy,'sparse state')==1
-            x(i) = instance.K_x; 
-       end           
-       y(i) = instance.J;
-    end  
-    figure('Position',[100 100 300 200])
-    plot(x,y,'--s',...
-    'LineWidth',2,...
-    'MarkerSize',5,...
-    'MarkerEdgeColor','b',...
-    'MarkerFaceColor',[0.5,0.5,0.5]) , hold on
-    title(['RSS w.r.t. ' num2str(tested_inaccuracy), ' inaccuracy'])
-    xlabel(instance.inaccuracy)
-    ylabel('RSS')
-    
-else   
-    for i = 1:length(Instances)
-       J(i) = Instances{i}.J;
-    end   
-    figure('Position',[99 100 200 200])
-    bar(1,instance.J_NA,'FaceColor',[0.5 .5 .5]), hold on
-    bar((1:length(Instances))+1,J), hold on
-    %title(['RSS'])
-    %xlabel('')
-    ylabel('RSS')
-end
+% if test_sensitivity == 1  
+%     for i = 1:length(Instances)
+%        instance = Instances{i};
+%        if strcmp(instance.inaccuracy,'topology')==1
+%             x(i) = instance.K_topo; 
+%        elseif strcmp(instance.inaccuracy,'dense network parameter')==1
+%             x(i) = instance.Mag_dense_para; 
+%         elseif strcmp(instance.inaccuracy,'sparse network parameter')==1
+%             x(i) = instance.K_para;  
+%         elseif strcmp(instance.inaccuracy,'sparse state')==1
+%             x(i) = instance.K_x; 
+%        end           
+%        y(i) = instance.J;
+%     end  
+%     figure('Position',[100 100 300 200])
+%     plot(x,y,'--s',...
+%     'LineWidth',2,...
+%     'MarkerSize',5,...
+%     'MarkerEdgeColor','b',...
+%     'MarkerFaceColor',[0.5,0.5,0.5]) , hold on
+%     title(['RSS w.r.t. ' num2str(tested_inaccuracy), ' inaccuracy'])
+%     xlabel(instance.inaccuracy)
+%     ylabel('RSS')
+%     
+% else   
+%     for i = 1:length(Instances)
+%        J(i) = Instances{i}.J;
+%     end   
+%     figure('Position',[99 100 200 200])
+%     bar(1,instance.J_NA,'FaceColor',[0.5 .5 .5]), hold on
+%     bar((1:length(Instances))+1,J), hold on
+%     %title(['RSS'])
+%     %xlabel('')
+%     ylabel('RSS')
+% end
 %% save data result
 %save(fprintf('%s_instance.mat',casename),'Instances')
