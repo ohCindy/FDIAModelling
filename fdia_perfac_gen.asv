@@ -1,7 +1,8 @@
 function [measure_a, idx, Vtarget_as] = ...
                 fdia_perfac_gen(Vest_as,pf_astgt, ...
                             measure,idx,...
-                               baseMVA, bus_as, gen_as, branch_as)
+                               baseMVA, bus_as, gen_as, branch_as,...
+                               na_ids)
 
 
 %pfa_x is power flow results calculated from Vest parameters bus_as,gen_as,branch_as
@@ -25,6 +26,18 @@ measure_a.Vm = measure.Vm + ha_xa.Vm - ha_x.Vm;
 measure_a.Pinj = measure_a.Pinj + ha_xa.Pinj - ha_x.Pinj;
 measure_a.Qinj = measure_a.Qinj + ha_xa.Qinj - ha_x.Qinj;    
 
+if ~isempty(na_ids)
+   all_measure_a = [measure_a.Pinj,measure_a.Qinj, ];
+   all_measure = [];
+%   N_na =  ceil(W_access*N_meter); %N_na the total number of non-accessible measurements
+%   N_na_per = round(N_meter_per/N_meter*N_na);
+%    measure_a.Pinj(1:N_na_per(1)) = measure.Pinj(1:N_na_per(1));
+%    measure_a.Qinj(1:N_na_per(2)) = measure.Qinj(1:N_na_per(2));
+%    measure_a.PF(1:N_na_per(3)) = measure.PF(1:N_na_per(3));
+%    measure_a.QF(1:N_na_per(4)) = measure.QF(1:N_na_per(4));  
+%    measure_a.Vm(1:N_na_per(5)) = measure.Vm(1:N_na_per(5));
+
+end
 
 bus = pf_astgt.bus;
 [PQ, PV, REF, NONE, BUS_I, BUS_TYPE, PD, QD, GS, BS, BUS_AREA, VM, ...

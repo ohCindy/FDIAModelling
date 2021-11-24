@@ -1,0 +1,12 @@
+N_trial = 5;
+for i_trial = 1:N_trial
+    FDIA_modelling_main;
+    save(fprintf('%s_y_%d.mat',casename,i_trial),'Instances')
+end
+
+Y_all = [];
+for i_trial = 1:N_trial
+    load(fprintf('%s_y_%d.mat',casename,i_trial),'Instances')
+    Y_all = [Y_all;y];
+end
+figure,plot(mean(Y_all))
