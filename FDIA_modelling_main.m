@@ -1,10 +1,11 @@
 %close all
-clear
+%clear
 addpath(genpath('matpower7.0/')) %add all subfolders
-casename = 'case30.m';
-
+casename = 'case_ACTIVSg500.m';
+%casename = 'case30.m';
 %% global control parameters
 test_sensitivity = 1;
+tested_inaccuracy = 'meter access';
 attack_use_outdated = 1;
 %% simulate reality/environment
 if ~(exist('measure')==1)
@@ -23,10 +24,14 @@ if ~(exist('measure')==1)
         measure.Pinj(bad_data_ids) = sign(measure.Pinj(bad_data_ids))*(1+abs(measure.Pinj(bad_data_ids)));
     end
 end
+
+N_meter = length(measure.Pinj)+length(measure.Qinj)+length(measure.PF)+length(measure.QF)+...
+            length(measure.PT)+length(measure.QT)+ length(measure.Vm);
+shuffled_meter_ids = randperm(N_meter);
 %% operator's previous SE settings (attackers can steal previous state estimates at t-1)
 %control parameters
-K_diff_topo = 5; %create the difference in topology between t-1 and t
-K_diff_para = 2; %create number of outdated line parameter t-1 and t
+K_diff_topo = 1; %create the difference in topology between t-1 and t
+K_diff_para = 3; %create number of outdated line parameter t-1 and t
 Mag_prev_para = 0.1;
 prev_lf = rand(1)*0.05+0.95; %randomly sample a previous lf between 100%+/-2.5%
 %% find a feasible previous system and simulate powerflow + SE
@@ -60,7 +65,7 @@ else
 end
 %% attacker side: attack target, what do we want to mislead the operator to? 
 % for AC FDIA, mislead the operator into thinking load changes by tgt_lf
-tgt_lf = 0.95;
+tgt_lf = 1.10;
 % for DC FDIA, mislead the operator into thinking there's angle instability
 dA_as = 3*randn(length(mpc.bus),1); %for FDIA DC
 dA_as(11:end)=0;
@@ -81,6 +86,7 @@ for p = 1:length(MODE_FDIA_list)
         instance.K_para = 0;
         instance.Mag_dense_para = 0;
         instance.Mag_sparse_para = 0;
+        instance.W_access = 1;
         if strcmp(instance.inaccuracy, 'topology')==1
             instance.K_topo = K_topo;
         elseif strcmp(instance.inaccuracy, 'sparse network parameter')==1
@@ -101,52 +107,52 @@ end
 
 %% test the sensitivity wrt one type of inaccuracy:
 elseif test_sensitivity == 1
-    tested_inaccuracy = 'topology';
     i_instance = 1;
+    %% template of instance
+        instance.MODE_FDIA = 'perfect AC'; %'DC','target AC','perfect AC'
+        instance.inaccuracy = tested_inaccuracy;
+        instance.K_topo = 0;
+        instance.K_para = 0;
+        instance.Mag_dense_para = 0;
+        instance.Mag_sparse_para = 0;
+        instance.W_access = 1; 
+    %%
     if strcmp(tested_inaccuracy, 'topology')==1
-        for K_topo = 0:1:10 %0:8
-            instance.MODE_FDIA = 'perfect AC'; %'DC','target AC','perfect AC'
-            instance.inaccuracy = tested_inaccuracy;
+        for K_topo = 0:1:8 %0:8
             instance.K_topo = K_topo;
-            instance.K_para = 0;
-            instance.Mag_dense_para = 0;
-            instance.Mag_sparse_para = 0;
             Instances{i_instance} = instance;
             i_instance = i_instance + 1;
         end
     elseif strcmp(tested_inaccuracy,'dense network parameter')==1
         for Mag_dense_para = 0:0.01:0.1
-            instance.MODE_FDIA = 'perfect AC'; %'DC','target AC','perfect AC'
-            instance.inaccuracy = tested_inaccuracy;
             instance.Mag_dense_para = Mag_dense_para;
-            instance.K_topo = 0;
-            instance.K_para = 0;
-            instance.Mag_sparse_para = 0;
             Instances{i_instance} = instance;
             i_instance = i_instance + 1;
         end
     elseif strcmp(tested_inaccuracy,'sparse network parameter')==1
         for K_para = 0:1:10
-            instance.MODE_FDIA = 'perfect AC'; %'DC','target AC','perfect AC'
-            instance.inaccuracy = tested_inaccuracy;
             instance.K_para = K_para;
             instance.Mag_sparse_para = Mag_sparse_para;
-            instance.K_topo = 0;
-            instance.Mag_dense_para = 0;
             Instances{i_instance} = instance;
             i_instance = i_instance + 1; 
-        end      
+        end   
+    elseif strcmp(tested_inaccuracy,'meter access')==1 
+        for W_access = 1:-0.1:0
+            instance.W_access = W_access;
+            Instances{i_instance} = instance;
+            i_instance = i_instance + 1; 
+        end
     end
 end
 %% according to MODE_FDIA, inaccuracy, fill in  Vest_as, branch_as
 for i = 1:length(Instances)
     instance = Instances{i};   
-    if strcmp(instance.inaccuracy, 'No inaccuracy')==1
+    if strcmp(instance.inaccuracy, 'No inaccuracy')==1 || strcmp(instance.inaccuracy, 'meter access')==1
         [success_NA, instance.Vest_as, ~, ~, ~, ~, ~, ~,~]=...
                                     SE_unit(baseMVA, mpc.bus, mpc.gen, mpc.branch,...
                                             measure, idx, sigma, 100, ...
                                             1); %NA: no attack
-        mpc_as = mpc;
+        mpc_as = mpc;        
     else
         if attack_use_outdated==1
              [success,instance.Vest_as,mpc_as] = get_manipulated_case(mpc,...
@@ -180,8 +186,16 @@ for i = 1:length(Instances)
             [measure_a, idx, Vtarget_as] = ...
                     fdia_perfac_gen(Vest_as,pf_astgt, ...
                                 measure,idx,...
-                                   baseMVA, instance.mpc_as.bus, instance.mpc_as.gen, instance.mpc_as.branch);
-
+                                   baseMVA, ...
+                                   instance.mpc_as.bus, instance.mpc_as.gen, instance.mpc_as.branch);
+            if instance.W_access<1
+                N_na = ceil((1-instance.W_access)*N_meter);
+                if instance.W_access==0
+                    measure_a = measure;
+                else
+                     measure_a = limit_write_access(measure_a,measure,shuffled_meter_ids,N_na);
+                end
+            end
         elseif strcmp(MODE_FDIA, 'DC')
         %DC FDiA:
         %dA_as = randn(length(bus_as),1); %delta angle (radias), create some random disturb of angle        
@@ -250,43 +264,47 @@ for i = 1:length(Instances)
    Instances{i}.Vest_as = [];
 end
 %% plot a curve of J if test sensitivity of a specific inaccuracy, save data
+plot_on = 0;
+if test_sensitivity == 1  
+    for i = 1:length(Instances)
+       instance = Instances{i};
+       if strcmp(instance.inaccuracy,'topology')==1
+            x(i) = instance.K_topo; 
+       elseif strcmp(instance.inaccuracy,'dense network parameter')==1
+            x(i) = instance.Mag_dense_para; 
+        elseif strcmp(instance.inaccuracy,'sparse network parameter')==1
+            x(i) = instance.K_para;  
+        elseif strcmp(instance.inaccuracy,'sparse state')==1
+            x(i) = instance.K_x; 
+       elseif strcmp(instance.inaccuracy,'meter access')==1
+           x(i) = instance.W_access; 
+       end           
+       y(i) = instance.J;
+    end  
+    if plot_on
+        figure('Position',[100 100 300 200])
+        plot(y,'--s',...
+        'LineWidth',2,...
+        'MarkerSize',5,...
+        'MarkerEdgeColor','b',...
+        'MarkerFaceColor',[0.5,0.5,0.5]) , hold on
+        xticks(1:length(y))
+        xticklabels(x)
+        title(['RSS w.r.t. ' num2str(tested_inaccuracy), ' inaccuracy'])
+        xlabel(instance.inaccuracy)
+        ylabel('RSS')
+    end
 
-      
-    
-% if test_sensitivity == 1  
-%     for i = 1:length(Instances)
-%        instance = Instances{i};
-%        if strcmp(instance.inaccuracy,'topology')==1
-%             x(i) = instance.K_topo; 
-%        elseif strcmp(instance.inaccuracy,'dense network parameter')==1
-%             x(i) = instance.Mag_dense_para; 
-%         elseif strcmp(instance.inaccuracy,'sparse network parameter')==1
-%             x(i) = instance.K_para;  
-%         elseif strcmp(instance.inaccuracy,'sparse state')==1
-%             x(i) = instance.K_x; 
-%        end           
-%        y(i) = instance.J;
-%     end  
-%     figure('Position',[100 100 300 200])
-%     plot(x,y,'--s',...
-%     'LineWidth',2,...
-%     'MarkerSize',5,...
-%     'MarkerEdgeColor','b',...
-%     'MarkerFaceColor',[0.5,0.5,0.5]) , hold on
-%     title(['RSS w.r.t. ' num2str(tested_inaccuracy), ' inaccuracy'])
-%     xlabel(instance.inaccuracy)
-%     ylabel('RSS')
-%     
-% else   
-%     for i = 1:length(Instances)
-%        J(i) = Instances{i}.J;
-%     end   
-%     figure('Position',[99 100 200 200])
-%     bar(1,instance.J_NA,'FaceColor',[0.5 .5 .5]), hold on
-%     bar((1:length(Instances))+1,J), hold on
-%     %title(['RSS'])
-%     %xlabel('')
-%     ylabel('RSS')
-% end
-%% save data result
-%save(fprintf('%s_instance.mat',casename),'Instances')
+else   
+    if plot_on
+        for i = 1:length(Instances)
+           J(i) = Instances{i}.J;
+        end   
+        figure('Position',[99 100 200 200])
+        bar(1,instance.J_NA,'FaceColor',[0.5 .5 .5]), hold on
+        bar((1:length(Instances))+1,J), hold on
+        %title(['RSS'])
+        %xlabel('')
+        ylabel('RSS')
+    end
+end
