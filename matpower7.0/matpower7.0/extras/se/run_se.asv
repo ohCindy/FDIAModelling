@@ -63,7 +63,7 @@ Sgen = Sgbus * baseMVA + (bus(gbus, PD) + 1j*bus(gbus, QD));    %% inj S + local
 gen(:, PG) = real(Sgen);
 gen(:, QG) = imag(Sgen);
 %% update data matrices with solution, ie, V
-%[bus, gen, branch] = updatepfsoln(baseMVA, bus, gen, branch, Ybus, V, ref, pv, pq);
+% [bus, gen, branch] = updatepfsoln(baseMVA, bus, gen, branch, Ybus, V, ref, pv, pq);
 [bus, gen, branch] = pfsoln(baseMVA, bus, gen, branch, Ybus, Yf, Yt, V, ref, pv, pq);
 et = toc(t0);
 
@@ -74,6 +74,8 @@ et = toc(t0);
 %outputpfsoln(baseMVA, bus, gen, branch, success, et, 1, iterNum);
 %% output state estimation solution
 %outputsesoln(idx, sigma, z, z_est, error_sqrsum);
+
 if max(nargout,1) > 10
     varargout{1} = H;
+    varargout{2} = ;
 end

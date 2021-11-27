@@ -6,7 +6,7 @@ casename = 'case_ACTIVSg500.m';
 %% global control parameters
 test_sensitivity = 1;
 tested_inaccuracy = 'meter access';
-attack_use_outdated = 1;
+attack_use_outdated = 0;
 %% simulate reality/environment
 if ~(exist('measure')==1)
     disp("simulate grid enviroment and meters by power flow")
@@ -65,7 +65,8 @@ else
 end
 %% attacker side: attack target, what do we want to mislead the operator to? 
 % for AC FDIA, mislead the operator into thinking load changes by tgt_lf
-tgt_lf = 1.10;
+tgt_lf = 1.2;
+
 % for DC FDIA, mislead the operator into thinking there's angle instability
 dA_as = 3*randn(length(mpc.bus),1); %for FDIA DC
 dA_as(11:end)=0;
@@ -213,16 +214,19 @@ for i = 1:length(Instances)
     init_option = 1;
     alpha = 100;
     fprintf("used sigma*%d in SE\n",alpha)
-    [success, V_SE, z_SEest, z_SEuse, if_bad, J, t_J, rW,rN]=...
-                                    SE_unit(baseMVA, bus, gen, branch,...
-                                            measure_a, idx, sigma,alpha, ...
-                                            init_option);
-    if i==1
-        [success_NA, V_SE_NA, z_SEest_NA, z_SEuse_NA, if_bad_NA, J_NA, t_J_NA, rW_NA,rN_NA]=...
+        if i==1
+        [success_NA, V_SE_NA, z_SEest_NA, z_SEuse_NA, if_bad_NA, J_NA, t_J_NA, rW_NA,rN_NA,gen_est_NA]=...
                                     SE_unit(baseMVA, bus, gen, branch,...
                                             measure, idx, sigma, alpha, ...
                                             init_option); %NA: no attack
-    end
+        end
+    [success, V_SE, z_SEest, z_SEuse, if_bad, J, t_J, rW,rN, gen_est]=...
+                                    SE_unit(baseMVA, bus, gen, branch,...
+                                            measure_a, idx, sigma,alpha, ...
+                                            init_option);
+    % matpower updates the estimated power to generation, instead of load
+    %total_load_error = sum(gen_est(:,2)) - sum(gen(:,2));
+    total_load_diff = (sum(gen_est(:,2)) - sum(gen_est_NA(:,2)))/sum(gen(:,2));
     %% operator side: SE accuracy 
     % RMSE
     res_x = sqrt(sum(real(V_SE-V_GT).^2+imag(V_SE-V_GT).^2)/length(bus));
@@ -241,6 +245,7 @@ for i = 1:length(Instances)
     instance.res_xa = res_xa;
     instance.res_x_NA = res_x_NA;
     instance.t_J = t_J;
+    instance.total_Pload_diff = total_load_diff; % esimtate_attack - estimate_no_attack/estimate_no_attack
     Instances{i} = instance;
 end %end instance
 
@@ -248,11 +253,11 @@ end %end instance
 disp("==============================\n\n")
 for i = 1:length(Instances)
    instance = Instances{i};
-   fprintf('%10s,%25s, J=%.2f, J(no attack)=%.2f, %.4f, %.4f, %.4f \n',...
+   fprintf('%10s,%25s, J=%.2f, J(NA)=%.2f, err %.3f, %.3f, %.3f, Pdiff%.2f \n',...
        instance.MODE_FDIA,instance.inaccuracy,...
        instance.J, instance.J_NA,...
          instance.res_x, instance.res_xa,... 
-            instance.res_x_NA); 
+            instance.res_x_NA, instance.total_Pload_diff); 
 end
 %% prepare for data save
 scaling_factor = 1;
@@ -279,11 +284,12 @@ if test_sensitivity == 1
        elseif strcmp(instance.inaccuracy,'meter access')==1
            x(i) = instance.W_access; 
        end           
-       y(i) = instance.J;
+       y_J(i) = instance.J;
+       y_suc(i) = instance.total_Pload_diff;
     end  
     if plot_on
         figure('Position',[100 100 300 200])
-        plot(y,'--s',...
+        plot(y_J,'--s',...
         'LineWidth',2,...
         'MarkerSize',5,...
         'MarkerEdgeColor','b',...

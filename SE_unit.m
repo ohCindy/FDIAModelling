@@ -1,4 +1,4 @@
-function [success, V, z_est, z, if_bad, J, t_J, rW,rN]=...
+function [success, V, z_est, z, if_bad, J, t_J, rW,rN,varargout]=...
     SE_unit(baseMVA, bus, gen, branch, measure, idx, sigma, alpha, init_option)
 %this function runs SE and BDD (J-test) BDI(rW,rN-test)
     %% check input data integrity
@@ -87,5 +87,8 @@ rN = abs(z - z_est)./sqrt(D);
 fprintf('BDI(rN-test): %d bad data points found, decision threshold 3 (99.7%%), see rN\n',sum(rN>3));
 disp('=================================')
 
+if max(nargout,1) > 9
+    varargout{1} = gen;
+end
 
 end
