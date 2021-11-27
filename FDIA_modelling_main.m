@@ -6,7 +6,8 @@ casename = 'case_ACTIVSg500.m';
 %% global control parameters
 test_sensitivity = 1;
 tested_inaccuracy = 'meter access';
-attack_use_outdated = 0;
+attack_use_outdated = 1;
+flat_start = 1;
 %% simulate reality/environment
 if ~(exist('measure')==1)
     disp("simulate grid enviroment and meters by power flow")
@@ -34,18 +35,28 @@ K_diff_topo = 1; %create the difference in topology between t-1 and t
 K_diff_para = 3; %create number of outdated line parameter t-1 and t
 Mag_prev_para = 0.1;
 prev_lf = rand(1)*0.05+0.95; %randomly sample a previous lf between 100%+/-2.5%
-%% find a feasible previous system and simulate powerflow + SE
-success = 0;
-while ~success
-    %randomness
+
+if flat_start
     shuffled_br_ids_topo = randperm(length(mpc.branch));
     shuffled_br_ids_para = randperm(length(mpc.branch));
-    %get estimate
-    [success,Vest_prev,mpc_prev] = get_manipulated_case(mpc,...
-        K_diff_topo,K_diff_para,...
-        Mag_prev_para,0,prev_lf,...
-         shuffled_br_ids_topo,shuffled_br_ids_para,noise_level,1);
+    Vest_prev(:) = 1+0i;
+else
+    % find a feasible previous system and simulate powerflow + SE
+    success = 0;
+    while ~success
+        %randomness
+        shuffled_br_ids_topo = randperm(length(mpc.branch));
+        shuffled_br_ids_para = randperm(length(mpc.branch));
+        %get estimate
+        [success,Vest_prev,mpc_prev] = get_manipulated_case(mpc,...
+            K_diff_topo,K_diff_para,...
+            Mag_prev_para,0,prev_lf,...
+             shuffled_br_ids_topo,shuffled_br_ids_para,noise_level,1);
+    end
 end
+
+
+
 %% attacker side - prepare inaccuracy models:
 % control parameters for imperfect grid model: topology error/inaccurate network parameter
 baseMVA = mpc.baseMVA;
