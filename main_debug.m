@@ -25,7 +25,7 @@ end
 res = cat(1, x, Y_all);
 csvwrite('result_J.csv', res)
 res = cat(1, x, S_all);
-csvwrite('result_J.csv', res)
+csvwrite('result_S.csv', res)
 
 % figure, boxplot(S_all)
 % xticks(1:length(x))
