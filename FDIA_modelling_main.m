@@ -1,7 +1,7 @@
 %close all
 %clear
 addpath(genpath('matpower7.0/')) %add all subfolders
-casename = 'case30.m';
+casename = 'case_ACTIVSg500.m';
 %% global control parameters
 test_sensitivity = 1;
 tested_inaccuracy = 'meter access';
@@ -64,7 +64,8 @@ else
 end
 %% attacker side: attack target, what do we want to mislead the operator to? 
 % for AC FDIA, mislead the operator into thinking load changes by tgt_lf
-tgt_lf = 1.2;
+tgt_lf = 0.8;
+R_attack = 0.1; %percentage of load buses to be attacked
 % for DC FDIA, mislead the operator into thinking there's angle instability
 dA_as = 3*randn(length(mpc.bus),1); %for FDIA DC
 dA_as(11:end)=0;
@@ -180,7 +181,10 @@ for i = 1:length(Instances)
         %Vest_as ready
         if strcmp(MODE_FDIA, 'perfect AC')
             %% generate target according to the attacker's model
-            [pf_astgt,tgtcase_as] = get_attack_target_case(instance.mpc_as,tgt_lf);
+            [pf_astgt,tgtcase_as] = get_attack_target_case(instance.mpc_as,tgt_lf,R_attack);
+            %% check the number of buses whose state variabels are attacked
+            v2change = pf_astgt.bus(:,8:9)-pf_results.bus(:,8:9);         
+            n_unattackedbus = sum(abs(v2change(:,1))<=0.0001&abs(v2change(:,2))<0.1);
             %% create fake measurements
             [measure_a, idx, Vtarget_as] = ...
                     fdia_perfac_gen(Vest_as,pf_astgt, ...
@@ -238,6 +242,7 @@ for i = 1:length(Instances)
 
     %save in instance
     instance.J = J;
+    instance.n_unattackedbus = n_unattackedbus;
     instance.J_NA = J_NA;
     instance.res_x = res_x;
     instance.res_xa = res_xa;
@@ -251,11 +256,12 @@ end %end instance
 disp("==============================\n\n")
 for i = 1:length(Instances)
    instance = Instances{i};
-   fprintf('%10s,%25s, J=%.2f, J(NA)=%.2f, err %.3f, %.3f, %.3f, Pdiff%.2f \n',...
+   fprintf('%10s,%25s, J=%.2f, J(NA)=%.2f, err %.3f, %.3f, %.3f, Pdiff%.2f UB %d\n',...
        instance.MODE_FDIA,instance.inaccuracy,...
        instance.J, instance.J_NA,...
          instance.res_x, instance.res_xa,... 
-            instance.res_x_NA, instance.total_Pload_diff); 
+            instance.res_x_NA, instance.total_Pload_diff,...
+            instance.n_unattackedbus); 
 end
 %% prepare for data save
 scaling_factor = 1;

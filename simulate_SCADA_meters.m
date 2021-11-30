@@ -94,7 +94,7 @@ for bus_key = measured_bus' %bus_key is index of row
     GT.Qinj = [GT.Qinj; Qinj];
     % add idx of transmission lines
     br_key_fadj = find((branch(:,F_BUS)==bus_num)&(branch(:,TAP)==0)&(branch(:,SHIFT)==0));%key of branch whose from bus is this bus
-    br_key_tadj = find((branch(:,T_BUS)==bus_num)&(branch(:,TAP)==0)&(branch(:,SHIFT)==0));%key of branch whose from bus is this bus
+    br_key_tadj = find((branch(:,T_BUS)==bus_num)&(branch(:,TAP)==0)&(branch(:,SHIFT)==0));%key of branch whose to bus is this bus
     if length(br_key_fadj)>1
         for i_adj = 1:(length(br_key_fadj)-1)
             idx.idx_zPF = [idx.idx_zPF,br_key_fadj(i_adj)];
